@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { LoadingProgress } from "@/components/report/LoadingProgress";
 import { ReportDashboard } from "@/components/report/ReportDashboard";
@@ -11,7 +11,7 @@ import {
 } from "@/lib/player-report-storage";
 import { normalizeNameTag } from "@/lib/name-resolve";
 
-export default function LocalReportPage() {
+function LocalReportPageInner() {
   const params = useParams<{ queryId: string }>();
   const searchParams = useSearchParams();
   const queryId = params.queryId;
@@ -107,5 +107,21 @@ export default function LocalReportPage() {
       }}
       competitiveUpdates={stored.updates || null}
     />
+  );
+}
+
+export default function LocalReportPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-4">
+          <div className="mx-auto max-w-5xl">
+            <LoadingProgress step={1} total={3} label="Loading report" />
+          </div>
+        </div>
+      }
+    >
+      <LocalReportPageInner />
+    </Suspense>
   );
 }

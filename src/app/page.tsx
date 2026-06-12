@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { loadFavorites, type FavoritePlayer } from "@/lib/favorites";
 import { normalizeNameTag } from "@/lib/name-resolve";
 import {
@@ -12,7 +12,7 @@ import { randomUUID } from "@/lib/random-uuid";
 import { getSessionDisplay } from "@/lib/session-label";
 import { LiveMatchPanel } from "@/components/live/LiveMatchPanel";
 
-export default function HomePage() {
+function HomePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const autoSharedSearch = useRef(false);
@@ -240,5 +240,19 @@ export default function HomePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#0f1923] text-sm text-[#8b979f]">
+          加载中…
+        </div>
+      }
+    >
+      <HomePageInner />
+    </Suspense>
   );
 }
