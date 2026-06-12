@@ -57,7 +57,7 @@ export function ReportShareBar({
 
       const result = await captureElementAsPng(
         el,
-        `valcn-${safeFilename(playerName)}.png`,
+        `val-cn-${safeFilename(playerName)}.png`,
       );
       setShotState("done");
       setShotHint(

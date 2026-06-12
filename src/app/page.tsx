@@ -103,7 +103,7 @@ function HomePageInner() {
     sessionOk === null
       ? "border-white/10 bg-white/[0.03]"
       : session.ok
-        ? sessionSource === "valcn"
+        ? sessionSource === "fallback"
           ? "border-[#ffb84d]/25 bg-[#ffb84d]/[0.06]"
           : "border-[#3dd68c]/25 bg-[#3dd68c]/[0.06]"
         : "border-[#ff4655]/25 bg-[#ff4655]/[0.06]";

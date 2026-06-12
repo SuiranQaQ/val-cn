@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Valorant 战绩查询 - VAL CN",
-  description: "Valorant 国服战绩查询工具，复刻 valcn.top 报告页",
+  description: "Valorant 国服战绩查询与报告工具",
 };
 
 export default function RootLayout({

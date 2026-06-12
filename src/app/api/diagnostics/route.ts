@@ -50,13 +50,11 @@ export async function GET(request: NextRequest) {
   const valcnFallback = isValcnFallbackEnabled();
 
   const hints: string[] = [];
-  if (source === "valcn") {
-    hints.push(
-      "未开游戏：借用 valcn.top 公开 Token 查战绩（免费后备，非付费账户）",
-    );
+  if (source === "fallback") {
+    hints.push("未开游戏：使用公开后备 Token 查战绩（非你的账号）");
   } else if (!lockfile && !session) {
     if (valcnFallback) {
-      hints.push("本机无客户端，将尝试 valcn 公开后备接口");
+      hints.push("本机无客户端，将尝试公开后备接口");
     } else {
       hints.push("请先启动瓦罗兰特客户端并登录");
       hints.push("或在 .env.local 填入 Token");
@@ -73,7 +71,7 @@ export async function GET(request: NextRequest) {
     lockfile_found: lockfile,
     session_ok: !!session,
     session_source: source,
-    valcn_fallback: valcnFallback,
+    public_fallback: valcnFallback,
     hints,
   });
 }

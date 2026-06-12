@@ -19,7 +19,7 @@ export async function GET() {
   const sourceLabel: Record<string, string> = {
     env: "环境变量（自己的 Token）",
     lockfile: "本机客户端 lockfile",
-    valcn: "外部会话源（RIOT_SESSION_URL）",
+    fallback: "公开后备会话（RIOT_SESSION_URL）",
   };
 
   return NextResponse.json({

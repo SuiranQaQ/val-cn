@@ -27,7 +27,7 @@ const DEFAULT_CLIENT_VERSION = "release-china-12.11-shipping-12-4815700";
 const DEFAULT_CLIENT_PLATFORM =
   "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQ1LjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9";
 
-export type SessionSource = "env" | "lockfile" | "valcn" | "none";
+export type SessionSource = "env" | "lockfile" | "fallback" | "none";
 
 let cached: {
   value: RiotSession | null;
@@ -146,7 +146,7 @@ export async function getRiotSession(): Promise<RiotSession | null> {
 
   if (!session) {
     session = await sessionFromValcnProxy();
-    if (session) source = "valcn";
+    if (session) source = "fallback";
   }
 
   if (session) {

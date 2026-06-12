@@ -1,4 +1,4 @@
-export type SessionSourceKey = "env" | "lockfile" | "valcn" | "none";
+export type SessionSourceKey = "env" | "lockfile" | "fallback" | "none";
 
 export interface SessionDisplay {
   label: string;
@@ -40,11 +40,10 @@ export function getSessionDisplay(
         detail: "使用 .env.local 中的凭证，注意过期时间",
         ok: true,
       };
-    case "valcn":
+    case "fallback":
       return {
         label: "后备线路",
-        detail:
-          "本机未开游戏，借用 valcn.top 公开接口查战绩（非你的账号，可能不稳定）",
+        detail: "本机未开游戏，使用公开后备接口查战绩（非你的账号，可能不稳定）",
         ok: true,
       };
     default:

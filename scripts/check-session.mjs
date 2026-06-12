@@ -152,21 +152,21 @@ async function sessionFromValcn(env) {
   const url = env.RIOT_SESSION_URL?.trim() || `${VALCN_BASE}/api/session/latest`;
   try {
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return { error: `valcn HTTP ${res.status}` };
+    if (!res.ok) return { error: `后备 API HTTP ${res.status}` };
     const data = await res.json();
     const session = data?.session;
     if (!session?.authorization || !session?.entitlements_jwt) {
-      return { error: "valcn 无可用公开会话" };
+      return { error: "后备 API 无可用公开会话" };
     }
     return {
-      source: "valcn",
+      source: "fallback",
       authorization: String(session.authorization),
       entitlements_jwt: String(session.entitlements_jwt),
       client_version: String(session.client_version || "").trim() || DEFAULT_CLIENT_VERSION,
       url,
     };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "valcn 请求失败" };
+    return { error: err instanceof Error ? err.message : "后备 API 请求失败" };
   }
 }
 
@@ -232,7 +232,7 @@ async function main() {
   console.log("");
 
   // 3. valcn
-  log("▶", "检查 valcn 公开后备 ...");
+  log("▶", "检查公开后备 API ...");
   if (valcnOff) {
     log("  ·", "VALCN_FALLBACK=false，已关闭后备");
     printFail();
@@ -251,7 +251,7 @@ async function main() {
     process.exit(2);
   }
 
-  log("  ✓", `借用 valcn 公开 Token（${vc.url}）`);
+  log("  ✓", `借用公开后备 Token（${vc.url}）`);
   log("  ·", `access: ${maskToken(vc.authorization.replace(/^Bearer\s+/, ""))}`);
   log("  ·", "可查战绩；对局认人 /live 仍需本机开游戏");
   printReady(vc, { lockfile: null, valcnOff });
@@ -264,7 +264,7 @@ function printReady(session, { lockfile, valcnOff }) {
   log("✓", `环境就绪 — Token 来源: ${labelSource(session.source)}`);
   if (session.source === "lockfile") {
     log("·", "战绩查询、对局认人均可用");
-  } else if (session.source === "valcn") {
+  } else if (session.source === "fallback") {
     log("·", "仅战绩查询可用；/live 需本机开瓦罗兰特");
   } else {
     log("·", "使用 .env.local 手动 Token");
@@ -287,7 +287,7 @@ function printFail() {
 function labelSource(s) {
   if (s === "env") return ".env.local 手动配置";
   if (s === "lockfile") return "本机游戏客户端（自动）";
-  if (s === "valcn") return "valcn 公开后备";
+  if (s === "fallback") return "公开后备 API";
   return s;
 }
 

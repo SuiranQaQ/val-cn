@@ -289,7 +289,7 @@ export async function resolveNameTagToSubjectOrThrow(
   const valcn = await resolveViaValcnNameQueue(normalized);
   if (valcn.subject) {
     lastSource = "external";
-    lastResolveDetail = "valcn 名字队列";
+    lastResolveDetail = "公开名字解析队列";
     return valcn.subject;
   }
 
@@ -304,7 +304,7 @@ export async function resolveNameTagToSubjectOrThrow(
     throw new Error("name_resolve_timeout");
   }
   if (valcn.status === "disabled") {
-    lastResolveDetail = "未开启 valcn 后备且本机无法解析";
+    lastResolveDetail = "未开启公开后备且本机无法解析";
   }
 
   if (!lock && !session) {
