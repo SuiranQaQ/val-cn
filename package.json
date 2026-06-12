@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:session": "node scripts/check-session.mjs",
     "package:local": "powershell -ExecutionPolicy Bypass -File scripts/package-local.ps1"
   },
   "dependencies": {

@@ -3,6 +3,7 @@
 import { useState, type RefObject } from "react";
 import { Copy, Star, Check, ImageDown, Loader2 } from "lucide-react";
 import { isFavorite, saveFavorite, removeFavorite } from "@/lib/favorites";
+import { buildSharePlayerUrl } from "@/lib/player-report-storage";
 import { captureElementAsPng } from "@/lib/share-screenshot";
 
 function safeFilename(name: string): string {
@@ -35,7 +36,7 @@ export function ReportShareBar({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(buildSharePlayerUrl(playerName));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

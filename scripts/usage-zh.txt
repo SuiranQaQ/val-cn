@@ -8,8 +8,10 @@ bat 只是另一种启动方式，界面完全相同。
 
 【游戏电脑怎么用】
 1. 解压 VAL-CN-portable.zip
-2. 双击 VAL-CN.vbs（推荐，无黑窗口）打开战绩站
-3. 打游戏时：先开瓦罗兰特 → 双击 VAL-CN-live.vbs 打开对局认人
+2. 不确定 Token？先双击 check.bat 看日志
+3. 双击 VAL-CN-debug.bat（推荐）— 先检查再启动，本窗口有日志
+4. 或双击 VAL-CN.vbs（无黑窗口，静默启动）打开战绩站
+5. 打游戏时：先开瓦罗兰特 → 双击 VAL-CN-live.vbs 打开对局认人
 
 【停止服务】
 双击 stop.bat 关闭后台服务

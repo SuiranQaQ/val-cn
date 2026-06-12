@@ -4,56 +4,71 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { LoadingProgress } from "@/components/report/LoadingProgress";
 import { ReportDashboard } from "@/components/report/ReportDashboard";
-
-interface StoredReport {
-  subject: string;
-  player_name: string;
-  rank_info: string;
-  rank_rr?: number;
-  season_name?: string;
-  account_level?: number;
-  player_card_icon?: string;
-  player_card_wide?: string;
-  penalties?: {
-    has_active: boolean;
-    items: Array<{ type: string; reason: string; expires_at: string }>;
-    note?: string;
-  };
-  match_ids: string[];
-  match_history_total: number;
-  rank_trend: Array<{
-    label: string;
-    tier: number;
-    rr: number;
-    changed: number;
-  }>;
-  updates?: Record<string, unknown> | null;
-}
+import {
+  buildStoredPlayerReport,
+  saveStoredPlayerReport,
+  type StoredPlayerReport,
+} from "@/lib/player-report-storage";
+import { normalizeNameTag } from "@/lib/name-resolve";
 
 export default function LocalReportPage() {
   const params = useParams<{ queryId: string }>();
   const searchParams = useSearchParams();
   const queryId = params.queryId;
-  const [stored, setStored] = useState<StoredReport | null>(null);
+  const [stored, setStored] = useState<StoredPlayerReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem(`player_report_${queryId}`);
-    if (!raw) {
-      setError("本地报告数据不存在，请重新查询");
-      setLoading(false);
-      return;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+
+      const raw = sessionStorage.getItem(`player_report_${queryId}`);
+      if (raw) {
+        try {
+          if (!cancelled) setStored(JSON.parse(raw) as StoredPlayerReport);
+        } catch {
+          if (!cancelled) setError("本地报告数据损坏，请重新查询");
+        }
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      const q = normalizeNameTag(searchParams.get("q") || "");
+      if (!q || !q.includes("#")) {
+        if (!cancelled) {
+          setError("分享链接已失效，请从首页重新查询");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/player?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(String(data.error || "查询失败"));
+        }
+        const report = buildStoredPlayerReport(data, q);
+        saveStoredPlayerReport(queryId, report);
+        if (!cancelled) setStored(report);
+      } catch {
+        if (!cancelled) {
+          setError("无法加载分享报告，请从首页重新查询");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
-    try {
-      setStored(JSON.parse(raw) as StoredReport);
-    } catch {
-      setError("本地报告数据损坏，请重新查询");
-    } finally {
-      setLoading(false);
-    }
-  }, [queryId]);
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [queryId, searchParams]);
 
   if (loading) {
     return (

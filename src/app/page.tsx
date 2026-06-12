@@ -1,14 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadFavorites, type FavoritePlayer } from "@/lib/favorites";
 import { normalizeNameTag } from "@/lib/name-resolve";
+import {
+  buildStoredPlayerReport,
+  saveStoredPlayerReport,
+} from "@/lib/player-report-storage";
+import { randomUUID } from "@/lib/random-uuid";
 import { getSessionDisplay } from "@/lib/session-label";
 import { LiveMatchPanel } from "@/components/live/LiveMatchPanel";
 
 export default function HomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoSharedSearch = useRef(false);
   const [playerInput, setPlayerInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,9 +56,8 @@ export default function HomePage() {
       });
   }, []);
 
-  const handlePlayerSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = normalizeNameTag(playerInput);
+  const runPlayerSearch = async (rawInput: string) => {
+    const q = normalizeNameTag(rawInput);
     if (!q || !q.includes("#")) {
       setError("请输入：游戏名#编号");
       return;
@@ -67,25 +73,10 @@ export default function HomePage() {
         throw new Error(errorText[code] || code || "查询失败");
       }
 
-      const reportId = crypto.randomUUID();
-      sessionStorage.setItem(
-        `player_report_${reportId}`,
-        JSON.stringify({
-          subject: data.subject,
-          player_name: q,
-          rank_info: data.rank_info,
-          rank_rr: data.rank_rr,
-          season_id: data.season_id,
-          season_name: data.season_name,
-          account_level: data.account_level,
-          player_card_icon: data.player_card_icon,
-          player_card_wide: data.player_card_wide,
-          penalties: data.penalties,
-          match_ids: data.match_ids,
-          match_history_total: data.match_history_total,
-          rank_trend: data.rank_trend,
-          updates: data.updates,
-        }),
+      const reportId = randomUUID();
+      saveStoredPlayerReport(
+        reportId,
+        buildStoredPlayerReport(data, q),
       );
       router.push(`/local/${reportId}?q=${encodeURIComponent(q)}`);
     } catch (err) {
@@ -94,6 +85,19 @@ export default function HomePage() {
       setLoading(false);
     }
   };
+
+  const handlePlayerSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await runPlayerSearch(playerInput);
+  };
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (autoSharedSearch.current || !q || !q.includes("#")) return;
+    autoSharedSearch.current = true;
+    setPlayerInput(q);
+    void runPlayerSearch(q);
+  }, [searchParams]);
 
   const sessionTone =
     sessionOk === null

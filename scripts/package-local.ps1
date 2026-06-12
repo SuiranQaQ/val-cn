@@ -155,11 +155,50 @@ cd /d "%~dp0"
 wscript.exe //nologo "%~dp0VAL-CN-live.vbs"
 '@
 
+$CheckBat = @'
+@echo off
+chcp 936 >nul
+cd /d "%~dp0"
+echo.
+echo ===== VAL CN 会话检查 =====
+echo.
+"%~dp0runtime\node.exe" "%~dp0check-session.mjs"
+echo.
+pause
+'@
+
+$DebugBat = @'
+@echo off
+chcp 936 >nul
+cd /d "%~dp0"
+echo.
+echo ===== VAL CN 环境检查 =====
+"%~dp0runtime\node.exe" "%~dp0check-session.mjs"
+echo.
+if errorlevel 2 (
+  echo 检查未通过。仍要启动请按任意键，Ctrl+C 取消...
+  pause >nul
+)
+echo ===== 启动服务（关闭本窗口即停止）=====
+echo 浏览器: http://127.0.0.1:3000
+echo.
+start "" "http://127.0.0.1:3000"
+set PORT=3000
+set HOSTNAME=127.0.0.1
+set NODE_ENV=production
+"%~dp0runtime\node.exe" "%~dp0server.js"
+pause
+'@
+
+Copy-Item (Join-Path $Root "scripts\check-session.mjs") (Join-Path $OutDir "check-session.mjs") -Force
+
 Write-AsciiFile -Path (Join-Path $OutDir "VAL-CN.vbs") -Content $MainVbs
 Write-AsciiFile -Path (Join-Path $OutDir "VAL-CN-live.vbs") -Content $LiveVbs
 Write-GbkFile -Path (Join-Path $OutDir "stop.bat") -Content $StopBat
 Write-GbkFile -Path (Join-Path $OutDir "start.bat") -Content $StartBat
 Write-GbkFile -Path (Join-Path $OutDir "start-live.bat") -Content $StartLiveBat
+Write-GbkFile -Path (Join-Path $OutDir "check.bat") -Content $CheckBat
+Write-GbkFile -Path (Join-Path $OutDir "VAL-CN-debug.bat") -Content $DebugBat
 
 $UrlShortcut = @"
 [InternetShortcut]
