@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0b1725;
+  --foreground: #ffffff;
+  --primary: #ff4655;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff20 transparent;
+}
+
+/* 长图截图：锁定桌面布局、去掉截图不支持的滤镜 */
+[data-capturing="true"] {
+  min-width: 1024px;
+  background: #07111d !important;
+}
+
+[data-capturing="true"] .backdrop-blur-sm {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 首页瓦罗兰特风格几何装饰 */
+.val-home-bg {
+  background-color: #0f1923;
+  background-image:
+    linear-gradient(135deg, rgba(255, 70, 85, 0.07) 0%, transparent 42%),
+    linear-gradient(225deg, rgba(15, 25, 35, 0.9) 0%, transparent 55%),
+    repeating-linear-gradient(
+      -12deg,
+      transparent,
+      transparent 48px,
+      rgba(255, 255, 255, 0.015) 48px,
+      rgba(255, 255, 255, 0.015) 49px
+    );
+}
+
+.val-cut-panel {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
+}
+
+.val-cut-input {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+}
