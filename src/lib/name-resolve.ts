@@ -8,9 +8,13 @@
  * 3. valcn 名字队列：先 enqueue 再轮询 status（默认可用）
  */
 
-import { getRiotSession } from "./riot-session";
+import { getRiotSession, getCachedSessionSource } from "./riot-session";
 import { localRiotFetch, readLockfile } from "./riot-lockfile";
 import { isValcnFallbackEnabled, VALCN_BASE } from "./valcn-fallback";
+import { normalizeNameTag, splitNameTag } from "./name-tag";
+import { getCachedSubject, setCachedSubject } from "./name-cache";
+
+export { normalizeNameTag, splitNameTag } from "./name-tag";
 
 export type NameResolveSource =
   | "local_client"
@@ -31,24 +35,6 @@ export function getLastNameResolveDetail(): string {
 
 export async function hasLockfile(): Promise<boolean> {
   return (await readLockfile()) !== null;
-}
-
-/** 规范化用户输入：全角 #、多余空格 */
-export function normalizeNameTag(nameTag: string): string {
-  return nameTag
-    .trim()
-    .replace(/\uFF03/g, "#")
-    .replace(/\s+#\s+/, "#");
-}
-
-function splitNameTag(nameTag: string): { gameName: string; tagLine: string } | null {
-  const trimmed = normalizeNameTag(nameTag);
-  const hash = trimmed.lastIndexOf("#");
-  if (hash <= 0 || hash === trimmed.length - 1) return null;
-  return {
-    gameName: trimmed.slice(0, hash).trim(),
-    tagLine: trimmed.slice(hash + 1).trim(),
-  };
 }
 
 function matchPlayer(
@@ -174,11 +160,12 @@ interface ValcnQueueStatus {
 async function fetchValcnQueueStatus(
   nameTag: string,
 ): Promise<ValcnQueueStatus | null> {
-  const params = new URLSearchParams({ full_name: nameTag.trim() });
+  const params = new URLSearchParams();
+  params.set("full_name", nameTag.trim());
   try {
     const res = await fetch(
-      `${VALCN_BASE}/api/name_resolve_queue/status?${params}`,
-      { cache: "no-store" },
+      `${VALCN_BASE}/api/name_resolve_queue/status?${params.toString()}`,
+      { cache: "no-store", signal: AbortSignal.timeout(6_000) },
     );
     if (!res.ok) return null;
     return (await res.json()) as ValcnQueueStatus;
@@ -194,6 +181,7 @@ async function enqueueValcnName(nameTag: string): Promise<boolean> {
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({ full_name: nameTag.trim() }),
       cache: "no-store",
+      signal: AbortSignal.timeout(6_000),
     });
     return res.ok;
   } catch {
@@ -220,22 +208,36 @@ async function resolveViaValcnNameQueue(nameTag: string): Promise<{
   // valcn 对未入队名字也会返回 unknown，不能在此直接判定玩家不存在
   const needsEnqueue = status?.status !== "pending";
   if (needsEnqueue) {
-    const enqueued = await enqueueValcnName(trimmed);
+    let enqueued = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      enqueued = await enqueueValcnName(trimmed);
+      if (enqueued) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
     if (!enqueued) {
       return { subject: null, status: "enqueue_failed" };
     }
   }
 
-  const maxAttempts = 24;
+  const maxAttempts = 50;
+  let nullStreak = 0;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 500));
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, i < 10 ? 400 : 800));
+    }
     status = await fetchValcnQueueStatus(trimmed);
-    if (!status) continue;
+    if (!status) {
+      nullStreak += 1;
+      if (nullStreak >= 5) {
+        return { subject: null, status: "enqueue_failed" };
+      }
+      continue;
+    }
+    nullStreak = 0;
 
     if (status.status === "resolved" && status.resolved_subject) {
       return { subject: status.resolved_subject.trim(), status: "resolved" };
     }
-    // unknown 仅在接受队列处理后再视为不存在
     if (status.status === "unknown") {
       return { subject: null, status: "unknown" };
     }
@@ -266,23 +268,35 @@ export async function resolveNameTagToSubjectOrThrow(
   const normalized = normalizeNameTag(nameTag);
   const { gameName, tagLine } = parts;
   const lock = await readLockfile();
-  const session = await getRiotSession();
+  await getRiotSession();
+  const sessionSource = getCachedSessionSource();
+
+  const cached = await getCachedSubject(normalized);
+  if (cached) {
+    lastSource = "external";
+    lastResolveDetail = "本地名字缓存";
+    return cached;
+  }
 
   const local = await resolveViaLocalClient(gameName, tagLine);
   if (local) {
     lastSource = "local_client";
     lastResolveDetail = "本机客户端好友接口";
+    await setCachedSubject(normalized, local);
     return local;
   }
 
-  // 国服 shared account 对中文名常返回错误 UUID，中文 ID 直接走 valcn 队列
-  const asciiOnly = /^[\x00-\x7F]+$/.test(gameName) && /^[\x00-\x7F]+$/.test(tagLine);
-  const account = asciiOnly
-    ? await resolveViaRiotAccount(gameName, tagLine)
-    : null;
+  // 本机 Companion Token 主要面向 pd，shared 解析不稳定；中文名始终走 valcn 队列
+  const asciiOnly =
+    /^[\x00-\x7F]+$/.test(gameName) && /^[\x00-\x7F]+$/.test(tagLine);
+  const account =
+    asciiOnly && sessionSource !== "file"
+      ? await resolveViaRiotAccount(gameName, tagLine)
+      : null;
   if (account) {
     lastSource = "riot_account";
     lastResolveDetail = "Riot 账号接口";
+    await setCachedSubject(normalized, account);
     return account;
   }
 
@@ -290,28 +304,46 @@ export async function resolveNameTagToSubjectOrThrow(
   if (valcn.subject) {
     lastSource = "external";
     lastResolveDetail = "公开名字解析队列";
+    await setCachedSubject(normalized, valcn.subject);
     return valcn.subject;
   }
 
+  // valcn 超时/失败时，尝试 Riot shared 账号接口（本机 Token 有时可用）
+  if (valcn.status === "timeout" || valcn.status === "enqueue_failed") {
+    const accountFallback = await resolveViaRiotAccount(gameName, tagLine);
+    if (accountFallback) {
+      lastSource = "riot_account";
+      lastResolveDetail = "Riot 账号接口（队列超时后备）";
+      await setCachedSubject(normalized, accountFallback);
+      return accountFallback;
+    }
+  }
+
   lastSource = "none";
+
+  if (valcn.status === "enqueue_failed") {
+    lastResolveDetail = "无法连接名字解析服务，请检查网络或稍后重试";
+    throw new Error("name_resolve_failed");
+  }
 
   if (valcn.status === "unknown") {
     lastResolveDetail = "玩家不存在或 ID#编号 有误";
     throw new Error("player_not_found");
   }
   if (valcn.status === "timeout") {
-    lastResolveDetail = "名字解析超时，请稍后重试或开启游戏客户端";
+    lastResolveDetail =
+      "公开名字解析队列响应过慢，请稍后重试；新 ID 首次查询可能需要 30 秒以上";
     throw new Error("name_resolve_timeout");
   }
   if (valcn.status === "disabled") {
     lastResolveDetail = "未开启公开后备且本机无法解析";
   }
 
-  if (!lock && !session) {
+  if (!lock && sessionSource === "none") {
     lastResolveDetail = "无客户端也无 Token";
     throw new Error("client_not_running");
   }
-  if (lock && !session) {
+  if (lock && sessionSource === "none") {
     lastResolveDetail = "客户端 Token 读取失败";
     throw new Error("session_from_lockfile_failed");
   }

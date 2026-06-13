@@ -8,9 +8,9 @@ export function BehaviorSummaryCard({ summary }: { summary: BehaviorSummary }) {
       hint: "你因 AFK/行为被扣 RR 的场次",
     },
     {
-      label: "你的处罚回合",
+      label: "局内处罚回合",
       value: summary.my_penalized_rounds,
-      hint: "局内 wasPenalized 标记",
+      hint: "比赛内 wasPenalized 行为标记，不等于封号",
     },
     {
       label: "你的 AFK 回合",

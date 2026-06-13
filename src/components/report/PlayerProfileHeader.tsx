@@ -70,7 +70,7 @@ export function PlayerProfileHeader({
           ) : null}
           {extras?.penalties?.has_active ? (
             <p className="mt-1 text-[10px] text-amber-400">
-              处罚中：{extras.penalties.items.map((p) => p.type).join("、")}
+              官方限制：{extras.penalties.items.map((p) => p.type).join("、")}
             </p>
           ) : null}
           {extras?.penalties?.note ? (

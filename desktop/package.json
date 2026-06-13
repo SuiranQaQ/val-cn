@@ -1,0 +1,15 @@
+{
+  "name": "valbox-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VALBOX Windows desktop shell",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env VALCN_ELECTRON_DEV=1 electron ."
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1"
+  }
+}

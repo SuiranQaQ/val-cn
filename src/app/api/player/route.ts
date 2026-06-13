@@ -7,6 +7,9 @@ import {
   fetchPenaltySummary,
 } from "@/lib/player-profile";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function GET(request: NextRequest) {
   const input = request.nextUrl.searchParams.get("q") || "";
   const trimmed = input.trim();

@@ -437,6 +437,17 @@ export function computeMapStats(matches: ProcessedMatch[]): MapStat[] {
     .slice(0, 8);
 }
 
+export function computeBehaviorFromUpdates(
+  updates: Record<string, unknown> | null,
+): Pick<BehaviorSummary, "afk_penalty_matches"> {
+  const updateList = (updates?.Matches || []) as Array<Record<string, unknown>>;
+  let afkPenalty = 0;
+  for (const u of updateList) {
+    if (Number(u.AFKPenalty || 0) > 0) afkPenalty += 1;
+  }
+  return { afk_penalty_matches: afkPenalty };
+}
+
 export function computeBehaviorSummary(
   matches: ProcessedMatch[],
   updates: Record<string, unknown> | null,

@@ -3,46 +3,43 @@ export interface LockfileInfo {
   password: string;
 }
 
+export interface LockfileProbe {
+  lock: LockfileInfo | null;
+  path: string | null;
+  candidates: string[];
+}
+
+/** 国服/国际服常见 lockfile 位置（仅客户端进程在跑时才会生成该文件） */
+export function getLockfileCandidatePaths(): string[] {
+  const path = require("path") as typeof import("path");
+  const local = process.env.LOCALAPPDATA || "";
+  const programData = process.env.ProgramData || "";
+
+  return [
+    process.env.RIOT_LOCKFILE_PATH,
+    path.join(local, "Riot Games", "Riot Client", "Config", "lockfile"),
+    path.join(local, "RiotGames", "Riot Client", "Config", "lockfile"),
+    path.join(local, "Tencent", "VALORANT", "Riot Client", "Config", "lockfile"),
+    path.join(local, "Tencent", "Riot Games", "Riot Client", "Config", "lockfile"),
+    path.join(local, "VALORANT", "Riot Client", "Config", "lockfile"),
+    path.join(local, "VALORANT", "Config", "lockfile"),
+    path.join(programData, "Riot Games", "Riot Client", "Config", "lockfile"),
+  ].filter(Boolean) as string[];
+}
+
 /** 读取 Riot Client lockfile（客户端运行时） */
 export async function readLockfile(): Promise<LockfileInfo | null> {
-  if (process.platform !== "win32") return null;
+  const probe = await probeLockfile();
+  return probe.lock;
+}
+
+export async function probeLockfile(): Promise<LockfileProbe> {
+  if (process.platform !== "win32") {
+    return { lock: null, path: null, candidates: [] };
+  }
 
   const fs = await import("fs/promises");
-  const path = await import("path");
-
-  const candidates = [
-    process.env.RIOT_LOCKFILE_PATH,
-    path.join(
-      process.env.LOCALAPPDATA || "",
-      "Riot Games",
-      "Riot Client",
-      "Config",
-      "lockfile",
-    ),
-    path.join(
-      process.env.LOCALAPPDATA || "",
-      "RiotGames",
-      "Riot Client",
-      "Config",
-      "lockfile",
-    ),
-    path.join(
-      process.env.LOCALAPPDATA || "",
-      "Tencent",
-      "VALORANT",
-      "Riot Client",
-      "Config",
-      "lockfile",
-    ),
-    path.join(
-      process.env.LOCALAPPDATA || "",
-      "Tencent",
-      "Riot Games",
-      "Riot Client",
-      "Config",
-      "lockfile",
-    ),
-  ].filter(Boolean) as string[];
+  const candidates = getLockfileCandidatePaths();
 
   for (const filePath of candidates) {
     try {
@@ -51,12 +48,15 @@ export async function readLockfile(): Promise<LockfileInfo | null> {
       if (parts.length < 5) continue;
       const port = parts[2];
       const password = parts[3];
-      if (port && password) return { port, password };
+      if (port && password) {
+        return { lock: { port, password }, path: filePath, candidates };
+      }
     } catch {
       // try next
     }
   }
-  return null;
+
+  return { lock: null, path: null, candidates };
 }
 
 export function lockfileAuth(lock: LockfileInfo): string {

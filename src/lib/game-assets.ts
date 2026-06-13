@@ -3,10 +3,17 @@
  * 与 valcn 等站点相同思路：配图用公开资源 API，战绩用 Riot 接口
  */
 
+import {
+  normalizeAgentRole,
+  type AgentRole,
+} from "./agent-roles";
+
 interface AgentAsset {
   uuid: string;
   displayName: string;
   displayIcon: string;
+  isPlayableCharacter?: boolean;
+  role?: { displayName?: string };
 }
 
 interface MapAsset {
@@ -171,6 +178,29 @@ export async function getSeasonDisplay(
   const actName = act.displayName || "";
   const name = episodeName ? `${episodeName} ${actName}` : act.title || actName;
   return { name, actName, episodeName };
+}
+
+export async function getPlayableAgents(): Promise<
+  Array<{ id: string; name: string; icon: string; role: AgentRole | null }>
+> {
+  const c = await loadCache();
+  const list: Array<{
+    id: string;
+    name: string;
+    icon: string;
+    role: AgentRole | null;
+  }> = [];
+  for (const [, a] of c.agentsById.entries()) {
+    if (a.isPlayableCharacter === false) continue;
+    if (!a.displayIcon) continue;
+    list.push({
+      id: a.uuid,
+      name: a.displayName,
+      icon: a.displayIcon,
+      role: normalizeAgentRole(a.role?.displayName || ""),
+    });
+  }
+  return list.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
 export async function getPlayerCardDisplay(

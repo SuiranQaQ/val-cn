@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ClientShell } from "@/components/client/ClientShell";
+import { isClientApp } from "@/lib/app-mode";
 import { LoadingProgress } from "@/components/report/LoadingProgress";
 import { ReportDashboard } from "@/components/report/ReportDashboard";
 import {
@@ -9,10 +12,11 @@ import {
   saveStoredPlayerReport,
   type StoredPlayerReport,
 } from "@/lib/player-report-storage";
-import { normalizeNameTag } from "@/lib/name-resolve";
+import { normalizeNameTag } from "@/lib/name-tag";
 
 function LocalReportPageInner() {
   const params = useParams<{ queryId: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const queryId = params.queryId;
   const [stored, setStored] = useState<StoredPlayerReport | null>(null);
@@ -70,27 +74,19 @@ function LocalReportPageInner() {
     };
   }, [queryId, searchParams]);
 
-  if (loading) {
-    return (
-      <div className="p-4">
-        <div className="mx-auto max-w-5xl">
-          <LoadingProgress step={2} total={3} label="Loading report" />
-        </div>
-      </div>
-    );
-  }
+  const playerName = searchParams.get("q") || stored?.player_name || "";
 
-  if (error || !stored) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center p-4 text-sm text-rose-300">
-        {error || "数据不存在"}
-      </div>
-    );
-  }
-
-  return (
+  const body = loading ? (
+    <div className="py-4">
+      <LoadingProgress step={2} total={3} label="Loading report" />
+    </div>
+  ) : error || !stored ? (
+    <div className="flex min-h-[40vh] items-center justify-center py-8 text-sm text-rose-300">
+      {error || "数据不存在"}
+    </div>
+  ) : (
     <ReportDashboard
-      playerName={searchParams.get("q") || stored.player_name}
+      playerName={playerName}
       subject={stored.subject}
       rankInfo={stored.rank_info}
       seasonName={stored.season_name || ""}
@@ -108,6 +104,34 @@ function LocalReportPageInner() {
       competitiveUpdates={stored.updates || null}
     />
   );
+
+  if (isClientApp()) {
+    return (
+      <ClientShell scrollable>
+        <div className="mb-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="border border-white/15 px-3 py-1.5 text-xs text-[#c5cdd3] transition hover:border-white/30 hover:text-white"
+          >
+            ← 返回
+          </button>
+          <Link
+            href="/"
+            className="text-xs text-[#6d7a82] hover:text-white"
+          >
+            我的
+          </Link>
+          {playerName ? (
+            <span className="truncate text-xs text-[#8b979f]">{playerName}</span>
+          ) : null}
+        </div>
+        {body}
+      </ClientShell>
+    );
+  }
+
+  return <div className="min-h-screen overflow-y-auto">{body}</div>;
 }
 
 export default function LocalReportPage() {
@@ -115,9 +139,7 @@ export default function LocalReportPage() {
     <Suspense
       fallback={
         <div className="p-4">
-          <div className="mx-auto max-w-5xl">
-            <LoadingProgress step={1} total={3} label="Loading report" />
-          </div>
+          <LoadingProgress step={1} total={3} label="Loading report" />
         </div>
       }
     >

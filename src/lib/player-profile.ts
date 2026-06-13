@@ -1,5 +1,34 @@
 import { getPlayerCardDisplay, getSeasonDisplay } from "./game-assets";
 import { getRankName } from "./constants";
+import { getSessionSubject } from "./riot-account";
+import { getCompanionFileSession, getRiotSession } from "./riot-session";
+
+const PENALTY_TYPE_LABELS: Record<string, string> = {
+  PERMANENT_BAN: "永久封禁",
+  TIME_BAN: "限时封禁",
+  PERMA_BAN: "永久封禁",
+  RANKED_RESTRICTION: "竞技模式限制",
+  RANKED_RESTRICTED: "竞技模式限制",
+  CHAT_RESTRICTION: "聊天限制",
+  CHAT_RESTRICTED: "聊天限制",
+  ACCOUNT_RESTRICTION: "账号限制",
+  MATCHMAKING_RESTRICTED: "匹配限制",
+  QUEUE_RESTRICTED: "队列限制",
+};
+
+function penaltyExpired(expiresAt: string): boolean {
+  if (!expiresAt) return false;
+  const ms = new Date(expiresAt).getTime();
+  return Number.isFinite(ms) && ms > 0 && Date.now() > ms;
+}
+
+function mapPenaltyType(raw: unknown): string | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  const mapped = PENALTY_TYPE_LABELS[value.toUpperCase()] || value;
+  if (mapped === "限制" || mapped.toLowerCase() === "restriction") return null;
+  return mapped;
+}
 
 export interface PlayerProfileMeta {
   season_id: string;
@@ -23,45 +52,47 @@ export interface PenaltySummary {
   note?: string;
 }
 
-function parsePenalties(raw: unknown, queriedSubject: string): PenaltySummary {
+export function parsePenalties(raw: unknown, queriedSubject: string): PenaltySummary {
   const data = raw as {
     Subject?: string;
     Penalties?: Array<Record<string, unknown>>;
   } | null;
 
   if (!data) {
+    return { has_active: false, items: [] };
+  }
+
+  const sessionSubject = String(data.Subject || "").trim();
+  const subjectMatches =
+    !sessionSubject ||
+    !queriedSubject ||
+    sessionSubject.toLowerCase() === queriedSubject.toLowerCase();
+
+  if (!subjectMatches) {
     return {
       has_active: false,
       items: [],
-      note: "无法获取处罚记录（需有效 Riot 会话）",
+      note: "处罚接口仅返回登录账号本人状态，查他人时不展示",
     };
   }
 
-  const sessionSubject = String(data.Subject || "");
   const penalties = Array.isArray(data.Penalties) ? data.Penalties : [];
   const items = penalties
-    .map((p) => ({
-      type: String(p.Type || p.type || p.CheeseType || "限制"),
-      reason: String(p.Reason || p.reason || p.Message || "未知原因"),
-      expires_at: String(
+    .map((p) => {
+      const type =
+        mapPenaltyType(p.Type || p.type || p.CheeseType || p.RestrictionType) ||
+        mapPenaltyType(p.Name);
+      const reason = String(p.Reason || p.reason || p.Message || "").trim();
+      const expires_at = String(
         p.ExpirationDate || p.expirationDate || p.EndTime || "",
-      ),
-    }))
-    .filter((p) => p.type || p.reason);
-
-  let note: string | undefined;
-  if (
-    sessionSubject &&
-    queriedSubject &&
-    sessionSubject.toLowerCase() !== queriedSubject.toLowerCase()
-  ) {
-    note = "当前会话非被查询玩家本人，此处显示的是会话账号的处罚状态";
-  }
+      );
+      return { type: type || reason || "", reason, expires_at };
+    })
+    .filter((p) => p.type && !penaltyExpired(p.expires_at));
 
   return {
     has_active: items.length > 0,
     items,
-    note,
   };
 }
 
@@ -120,6 +151,17 @@ export async function enrichWithLoadout(
 export async function fetchPenaltySummary(
   queriedSubject: string,
 ): Promise<PenaltySummary> {
+  const session = getCompanionFileSession() || (await getRiotSession());
+  const sessionSubject = getSessionSubject(session);
+
+  if (
+    sessionSubject &&
+    queriedSubject &&
+    sessionSubject.toLowerCase() !== queriedSubject.toLowerCase()
+  ) {
+    return { has_active: false, items: [] };
+  }
+
   const { fetchPenalties } = await import("./riot");
   const raw = await fetchPenalties();
   return parsePenalties(raw, queriedSubject);

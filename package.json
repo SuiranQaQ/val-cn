@@ -8,7 +8,17 @@
     "start": "next start",
     "lint": "eslint",
     "check:session": "node scripts/check-session.mjs",
-    "package:local": "powershell -ExecutionPolicy Bypass -File scripts/package-local.ps1"
+    "companion": "node companion/index.mjs",
+    "companion:install-ca": "powershell -NoProfile -ExecutionPolicy Bypass -File companion/scripts/install-ca.ps1",
+    "companion:ca": "companion\\scripts\\install-ca.cmd",
+    "package:local": "powershell -ExecutionPolicy Bypass -File scripts/package-local.ps1",
+    "package:website": "powershell -ExecutionPolicy Bypass -File scripts/package-website.ps1",
+    "setup:pool-secrets": "node scripts/generate-pool-secrets.mjs --write",
+    "setup:pool-secrets:force": "node scripts/generate-pool-secrets.mjs --write --force",
+    "sync:pool-server": "powershell -ExecutionPolicy Bypass -File scripts/sync-pool-to-server.ps1",
+    "desktop": "npm run dev --prefix desktop",
+    "desktop:install": "npm install --prefix desktop",
+    "desktop:prod": "npm start --prefix desktop"
   },
   "dependencies": {
     "html-to-image": "^1.11.13",

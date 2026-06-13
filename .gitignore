@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/companion/node_modules
+/desktop/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -21,10 +23,15 @@
 /build
 /release
 /scripts/.cache
+/public/downloads/*.zip
+/release/VAL-CN-website.zip
+
 
 # misc
 .DS_Store
 *.pem
+/data/session-pool.json
+/data/pool-secrets*.env
 
 # debug
 npm-debug.log*
@@ -37,8 +44,8 @@ yarn-error.log*
 .env.*
 !.env.example
 
-# vercel
-.vercel
+/public/videos/home-bg.mp4
+
 
 # typescript
 *.tsbuildinfo

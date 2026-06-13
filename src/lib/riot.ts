@@ -13,8 +13,13 @@ import {
 import {
   clearSessionCache,
   getRiotSession,
+  getCachedSessionSource,
+  getSessionSource,
+  invalidateFileSession,
   type RiotSession,
 } from "./riot-session";
+import { clearSessionProbeCache } from "./session-probe";
+import { removeLatestPooledSession } from "./session-pool";
 
 const PD_BASE =
   process.env.RIOT_PD_BASE?.trim() ||
@@ -38,6 +43,8 @@ async function riotFetch(
   const session = await getRiotSession();
   if (!session) throw new Error("riot_session_unavailable");
 
+  const activeSource = getCachedSessionSource();
+
   const url = `${PD_BASE}${path}`;
   const res = await fetch(url, {
     ...init,
@@ -46,14 +53,23 @@ async function riotFetch(
   });
 
   if (retryOnAuth && (res.status === 401 || res.status === 403)) {
-    clearSessionCache();
+    if (activeSource === "file") {
+      invalidateFileSession();
+      clearSessionProbeCache();
+    } else if (activeSource === "pool") {
+      removeLatestPooledSession();
+      clearSessionCache();
+    } else {
+      clearSessionCache();
+    }
     const retrySession = await getRiotSession();
     if (retrySession) {
-      return fetch(url, {
+      const retryRes = await fetch(url, {
         ...init,
         headers: { ...riotHeaders(retrySession), ...(init?.headers || {}) },
         cache: "no-store",
       });
+      if (retryRes.ok) return retryRes;
     }
   }
 
@@ -160,6 +176,18 @@ export async function fetchPenalties() {
   const res = await riotFetch("/restrictions/v3/penalties");
   if (!res.ok) return null;
   return res.json();
+}
+
+/** 本局行为干预反馈：谁被标了什么违规（不含举报人） */
+export async function fetchInterventionFeedback(
+  matchId: string,
+): Promise<Record<string, unknown> | null> {
+  const res = await riotFetch(
+    `/restrictions/v1/interventionFeedback/${encodeURIComponent(matchId)}`,
+  );
+  if (res.status === 204) return null;
+  if (!res.ok) return null;
+  return res.json() as Promise<Record<string, unknown>>;
 }
 
 /** 竞技模式段位变动记录 */

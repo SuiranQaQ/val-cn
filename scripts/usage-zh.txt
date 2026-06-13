@@ -1,30 +1,41 @@
-VAL CN 便携版（免安装）
+VAL CN 便携版（Windows 客户端）
 （本文件请用记事本打开 README.txt）
 
-【重要：正常 UI 在浏览器里】
-本工具是完整网页界面，不是黑窗口程序。
-双击 VAL-CN.vbs → 自动打开浏览器 → 那就是正常 UI（查战绩、统计、长图等）。
-bat 只是另一种启动方式，界面完全相同。
+【正常 UI 在浏览器里】
+双击 VAL-CN.vbs → 自动打开浏览器 → 查战绩、统计、长图等完整界面。
 
-【游戏电脑怎么用】
-1. 解压 VAL-CN-portable.zip
-2. 不确定 Token？先双击 check.bat 看日志
-3. 双击 VAL-CN-debug.bat（推荐）— 先检查再启动，本窗口有日志
-4. 或双击 VAL-CN.vbs（无黑窗口，静默启动）打开战绩站
-5. 打游戏时：先开瓦罗兰特 → 双击 VAL-CN-live.vbs 打开对局认人
+【国服推荐：Companion 捕获 Token】
+国服 ACLOS 无 lockfile，需伴生代理截 JWT（不注入游戏，与 5E-BOX 同类）。
 
-【停止服务】
-双击 stop.bat 关闭后台服务
+首次（管理员，只需一次）：
+  双击 install-companion-ca.bat
 
-【无需安装】
-已内置 Node.js，不需要 npm 环境。
+日常查战绩：
+  1. 双击 start-companion.bat（或 VAL-CN-companion.vbs）
+  2. 启动瓦罗兰特并进大厅（触发 Token 刷新）
+  3. 双击 VAL-CN.vbs 打开战绩站
 
-【Token】
-开着游戏会自动读客户端会话；也可编辑 .env.local 填入抓包 Token。
+首页会显示：Companion 状态 / Token 更新时间 / 老好人模式
+
+【老好人模式（可选）】
+在战绩站首页开启后，会把本机 JWT 提交到官网公用池，帮助其他玩家查询。
+需在 .env.local 配置 SESSION_POOL_CONTRIBUTE_SECRET（与官网相同，见发布说明）。
+
+【其他启动方式】
+  start.bat          — 同 VAL-CN.vbs
+  start-live.bat     — 打开实时对局 /live
+  check.bat          — 检查 Token 与会话
+  VAL-CN-debug.bat   — 带黑窗口调试启动
+  stop.bat           — 停止战绩站（端口 3000）
+
+【停止 Companion】
+关闭 Companion 窗口即可（会自动关闭系统代理）。
+不要与 5E-BOX 同时开代理。
+
+【无需安装 Node】
+已内置 Node.js runtime。
 
 【注意】
 - 仅本机 Windows 使用
-- 对局认人必须瓦罗兰特在本机运行
-
-【与反作弊】
-不读游戏内存、不注入进程，与外挂无关；仅供战绩查询参考。
+- Token 约 1 小时过期，保持 Companion 运行可自动刷新
+- 不读游戏内存、不注入进程

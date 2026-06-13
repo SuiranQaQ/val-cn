@@ -106,6 +106,47 @@ function sessionFromEnv(env) {
   };
 }
 
+function defaultSessionFile(env) {
+  return (
+    env.RIOT_SESSION_FILE?.trim() ||
+    path.join(env.LOCALAPPDATA || "", "VAL-CN", "session.json")
+  );
+}
+
+function sessionFromFile(env) {
+  const filePath = defaultSessionFile(env);
+  if (!filePath || !fs.existsSync(filePath)) return null;
+
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const access =
+      data.access_token?.trim() ||
+      data.accessToken?.trim() ||
+      data.authorization?.trim() ||
+      "";
+    const entitlements =
+      data.entitlements_jwt?.trim() ||
+      data.entitlementsJwt?.trim() ||
+      data.token?.trim() ||
+      "";
+    if (!access || !entitlements) return null;
+
+    return {
+      source: "file",
+      filePath,
+      updated_at: data.updated_at || null,
+      authorization: access.startsWith("Bearer ") ? access : `Bearer ${access}`,
+      entitlements_jwt: entitlements,
+      client_version:
+        data.client_version?.trim() ||
+        data.clientVersion?.trim() ||
+        DEFAULT_CLIENT_VERSION,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function sessionFromLockfile(lock) {
   const entRes = await localRiotFetch(lock, "/entitlements/v1/token");
   if (!entRes.ok) {
@@ -204,7 +245,23 @@ async function main() {
   log("  ·", "未配置手动 Token，尝试自动获取");
   console.log("");
 
-  // 2. lockfile
+  // 2. companion session 文件
+  log("▶", "检查 Companion 写入的 session.json ...");
+  const fileSession = sessionFromFile(env);
+  if (fileSession) {
+    log("  ✓", `本地会话文件: ${fileSession.filePath}`);
+    if (fileSession.updated_at) {
+      log("  ·", `更新时间: ${fileSession.updated_at}`);
+    }
+    log("  ·", `access: ${maskToken(fileSession.authorization.replace(/^Bearer\s+/, ""))}`);
+    printReady(fileSession, { lockfile: null, valcnOff });
+    process.exit(0);
+  }
+  log("  ·", `未找到: ${defaultSessionFile(env)}`);
+  log("  ·", "可先运行 companion 捕获（见 companion/README.md）");
+  console.log("");
+
+  // 3. lockfile
   log("▶", "检查本机 Riot 客户端 lockfile ...");
   const lock = readLockfile(env);
   if (!lock) {
@@ -231,7 +288,7 @@ async function main() {
   }
   console.log("");
 
-  // 3. valcn
+  // 4. valcn
   log("▶", "检查公开后备 API ...");
   if (valcnOff) {
     log("  ·", "VALCN_FALLBACK=false，已关闭后备");
@@ -264,6 +321,8 @@ function printReady(session, { lockfile, valcnOff }) {
   log("✓", `环境就绪 — Token 来源: ${labelSource(session.source)}`);
   if (session.source === "lockfile") {
     log("·", "战绩查询、对局认人均可用");
+  } else if (session.source === "file") {
+    log("·", "使用 Companion 捕获的 Token（国服推荐）");
   } else if (session.source === "fallback") {
     log("·", "仅战绩查询可用；/live 需本机开瓦罗兰特");
   } else {
@@ -286,6 +345,7 @@ function printFail() {
 
 function labelSource(s) {
   if (s === "env") return ".env.local 手动配置";
+  if (s === "file") return "Companion session 文件";
   if (s === "lockfile") return "本机游戏客户端（自动）";
   if (s === "fallback") return "公开后备 API";
   return s;

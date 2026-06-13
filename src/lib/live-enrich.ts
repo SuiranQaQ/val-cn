@@ -3,12 +3,16 @@
  * 带内存缓存与请求节流，降低限流风险
  */
 
-import { extractPlayerBehavior } from "./match-behavior";
 import { computeSmurfScore } from "./smurf-score";
+import { getRankName } from "./constants";
 import type { LivePlayer } from "./live-match";
+import { extractPlayerBehavior } from "./match-behavior";
+import { processMatchDetail, type ProcessedMatch } from "./match-processor";
+import { computeRecentSummary } from "./stats";
 import {
   fetchCompetitiveUpdates,
   fetchMatchDetail,
+  fetchPlayerHistory,
   resolvePlayerNames,
 } from "./riot";
 
@@ -19,30 +23,153 @@ export interface PlayerEnrichProfile {
   win_rate: number;
   avg_acs: number;
   avg_kda: number;
+  avg_kd: number;
+  headshot_pct: number;
+  rank_tier: number;
   afk_penalty_matches: number;
   smurf_score: number;
   smurf_flags: string[];
   suspicious_score: number;
   suspicious_flags: string[];
+  /** 胜率统计范围说明，如「近6场」 */
+  stats_scope: string;
   loaded: boolean;
   cached: boolean;
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const enrichCache = new Map<string, { at: number; profile: PlayerEnrichProfile }>();
+const RECENT_HISTORY_SIZE = 10;
+const RECENT_DETAIL_LIMIT = 6;
+const DETAIL_FETCH_GAP_MS = 90;
+
+/** 死斗/乱斗等无胜负意义模式，不计入胜率 */
+const NON_WIN_RATE_QUEUES = new Set([
+  "deathmatch",
+  "ggteam",
+  "hurm",
+  "gungame",
+]);
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function calcAcs(score: number, rounds: number): number {
-  if (!rounds) return 0;
-  return Math.round(score / rounds);
+function parseHsRate(value: string): number | null {
+  const n = Number(String(value || "").replace("%", "").trim());
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-function kda(k: number, d: number, a: number): number {
-  if (!d) return k + a;
-  return (k + a) / d;
+function isWinRateEligible(match: ProcessedMatch): boolean {
+  const queue = (match.queue_id || "").toLowerCase();
+  if (NON_WIN_RATE_QUEUES.has(queue)) return false;
+  return match.teams.length >= 2;
+}
+
+async function loadRecentProcessedMatches(
+  subject: string,
+): Promise<ProcessedMatch[]> {
+  const history = (await fetchPlayerHistory(
+    subject,
+    0,
+    RECENT_HISTORY_SIZE,
+  ).catch(() => null)) as Record<string, unknown> | null;
+
+  const ids = (
+    (history?.History || history?.history || []) as Array<Record<string, unknown>>
+  )
+    .map((row) => String(row.MatchID || row.matchId || "").trim())
+    .filter(Boolean)
+    .slice(0, RECENT_DETAIL_LIMIT);
+
+  const processed: ProcessedMatch[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    if (i > 0) await sleep(DETAIL_FETCH_GAP_MS);
+    try {
+      const raw = (await fetchMatchDetail(ids[i])) as Record<string, unknown>;
+      processed.push(processMatchDetail(ids[i], raw, subject));
+    } catch {
+      // skip unavailable match (刚结束的可能短暂 404)
+    }
+  }
+  return processed;
+}
+
+function summarizeRecentStats(processed: ProcessedMatch[]) {
+  const winPool = processed.filter(isWinRateEligible);
+  const summary = computeRecentSummary(winPool.length ? winPool : processed);
+
+  let kdSum = 0;
+  let kdCount = 0;
+  let kdaSum = 0;
+  let kdaCount = 0;
+  let hsSum = 0;
+  let hsCount = 0;
+
+  for (const match of processed) {
+    const me = match.teammates.find((p) => p.is_me);
+    if (!me) continue;
+
+    const { kills, deaths, assists } = me.stats;
+    kdaSum += deaths > 0 ? (kills + assists) / deaths : kills + assists;
+    kdaCount += 1;
+    if (deaths > 0) {
+      kdSum += kills / deaths;
+      kdCount += 1;
+    }
+
+    const hs = parseHsRate(me.hs_rate);
+    if (hs != null) {
+      hsSum += hs;
+      hsCount += 1;
+    }
+  }
+
+  const scopeCount = winPool.length || processed.length;
+  const statsScope =
+    scopeCount > 0
+      ? winPool.length && winPool.length < processed.length
+        ? `近${scopeCount}场(含模式)`
+        : `近${scopeCount}场`
+      : "暂无战绩";
+
+  return {
+    recent_games: summary.total,
+    wins: summary.wins,
+    win_rate: summary.winRate,
+    avg_acs: summary.avgAcs,
+    avg_kda:
+      kdaCount > 0 ? Math.round((kdaSum / kdaCount) * 10) / 10 : 0,
+    avg_kd: kdCount > 0 ? Math.round((kdSum / kdCount) * 10) / 10 : 0,
+    headshot_pct: hsCount > 0 ? Math.round(hsSum / hsCount) : 0,
+    stats_scope: statsScope,
+  };
+}
+
+function aggregateBehavior(processed: ProcessedMatch[]) {
+  const behaviorAgg = {
+    penalized_rounds: 0,
+    afk_rounds: 0,
+    afk_behavior_rounds: 0,
+    spawn_camp_rounds: 0,
+    friendly_fire_out: 0,
+    flags: [] as string[],
+  };
+
+  for (const match of processed) {
+    const me = match.teammates.find((p) => p.is_me);
+    if (!me?.behavior) continue;
+    behaviorAgg.penalized_rounds += me.behavior.penalized_rounds;
+    behaviorAgg.afk_rounds += me.behavior.afk_rounds;
+    behaviorAgg.afk_behavior_rounds += me.behavior.afk_behavior_rounds;
+    behaviorAgg.spawn_camp_rounds += me.behavior.spawn_camp_rounds;
+    behaviorAgg.friendly_fire_out = Math.max(
+      behaviorAgg.friendly_fire_out,
+      me.behavior.friendly_fire_out,
+    );
+  }
+
+  return behaviorAgg;
 }
 
 function suspiciousFromBehavior(
@@ -100,126 +227,69 @@ async function enrichOnePlayer(
     win_rate: 0,
     avg_acs: 0,
     avg_kda: 0,
+    avg_kd: 0,
+    headshot_pct: 0,
+    rank_tier: 0,
     afk_penalty_matches: 0,
     smurf_score: 0,
     smurf_flags: [],
     suspicious_score: 0,
     suspicious_flags: [],
+    stats_scope: "暂无战绩",
     loaded: false,
     cached: false,
   };
 
   try {
-    const updates = (await fetchCompetitiveUpdates(player.subject, 10)) as Record<
-      string,
-      unknown
+    const [processed, updatesRes] = await Promise.all([
+      loadRecentProcessedMatches(player.subject),
+      fetchCompetitiveUpdates(player.subject, 10).catch(() => null),
+    ]);
+
+    const updates = (updatesRes || {}) as Record<string, unknown>;
+    const competitiveMatches = (updates?.Matches || []) as Array<
+      Record<string, unknown>
     >;
-    const matches = (updates?.Matches || []) as Array<Record<string, unknown>>;
 
-    let wins = 0;
     let afkPenalties = 0;
-    const recentIds: string[] = [];
-
-    for (const m of matches.slice(0, 10)) {
-      const won = Boolean(m.Won ?? m.won);
-      if (won) wins += 1;
+    let rankTierFromUpdates = 0;
+    for (const m of competitiveMatches) {
       if (Number(m.AFKPenalty || 0) > 0) afkPenalties += 1;
-      const id = String(m.MatchID || m.matchId || "").trim();
-      if (id) recentIds.push(id);
+      const tier = Number(m.TierAfterUpdate ?? m.tierAfterUpdate ?? 0);
+      if (tier > 0 && !rankTierFromUpdates) rankTierFromUpdates = tier;
     }
 
-    const recentGames = matches.length;
-    const winRate =
-      recentGames > 0 ? Math.round((wins / recentGames) * 100) : 0;
-
-    let acsSum = 0;
-    let acsCount = 0;
-    let kdaSum = 0;
-    let kdaCount = 0;
-    let behaviorAgg = {
-      penalized_rounds: 0,
-      afk_rounds: 0,
-      afk_behavior_rounds: 0,
-      spawn_camp_rounds: 0,
-      friendly_fire_out: 0,
-      flags: [] as string[],
-    };
-
-    const detailIds = recentIds.slice(0, 3);
-    for (const matchId of detailIds) {
-      try {
-        const raw = (await fetchMatchDetail(matchId)) as Record<string, unknown>;
-        const players = (raw.players || []) as Array<Record<string, unknown>>;
-        const rounds = (raw.roundResults || raw.round_results || []) as Array<
-          Record<string, unknown>
-        >;
-        const me = players.find(
-          (p) =>
-            String(p.subject || p.Subject || "").toLowerCase() ===
-            player.subject.toLowerCase(),
-        );
-        if (!me) continue;
-
-        const stats = (me.stats || {}) as Record<string, number>;
-        const score = Number(stats.score || 0);
-        const roundsPlayed = rounds.length || 1;
-        acsSum += calcAcs(score, roundsPlayed);
-        acsCount += 1;
-
-        const k = Number(stats.kills || 0);
-        const d = Number(stats.deaths || 0);
-        const a = Number(stats.assists || 0);
-        kdaSum += kda(k, d, a);
-        kdaCount += 1;
-
-        const behavior = extractPlayerBehavior(me, rounds);
-        behaviorAgg.penalized_rounds += behavior.penalized_rounds;
-        behaviorAgg.afk_rounds += behavior.afk_rounds;
-        behaviorAgg.afk_behavior_rounds += behavior.afk_behavior_rounds;
-        behaviorAgg.spawn_camp_rounds += behavior.spawn_camp_rounds;
-        behaviorAgg.friendly_fire_out = Math.max(
-          behaviorAgg.friendly_fire_out,
-          behavior.friendly_fire_out,
-        );
-      } catch {
-        // skip failed match
+    for (const match of processed) {
+      const me = match.teammates.find((p) => p.is_me);
+      if (me && me.rank_tier > rankTierFromUpdates) {
+        rankTierFromUpdates = me.rank_tier;
       }
     }
 
-    const avgAcs = acsCount > 0 ? Math.round(acsSum / acsCount) : 0;
-    const avgKda =
-      kdaCount > 0 ? Math.round((kdaSum / kdaCount) * 10) / 10 : 0;
+    const stats = summarizeRecentStats(processed);
+    const behaviorAgg = aggregateBehavior(processed);
 
     const smurf = computeSmurfScore({
       account_level: player.account_level,
       rank_tier: player.rank_tier,
-      recent_games: recentGames,
-      win_rate: winRate,
-      avg_acs: avgAcs,
-      avg_kda: avgKda,
+      recent_games: stats.recent_games,
+      win_rate: stats.win_rate,
+      avg_acs: stats.avg_acs,
+      avg_kda: stats.avg_kda,
     });
 
-    const suspicious = suspiciousFromBehavior(
-      {
-        ...behaviorAgg,
-        flags: [],
-      },
-      afkPenalties,
-    );
+    const suspicious = suspiciousFromBehavior(behaviorAgg, afkPenalties);
 
     const profile: PlayerEnrichProfile = {
       name: baseName,
-      recent_games: recentGames,
-      wins,
-      win_rate: winRate,
-      avg_acs: avgAcs,
-      avg_kda: avgKda,
+      ...stats,
+      rank_tier: rankTierFromUpdates,
       afk_penalty_matches: afkPenalties,
       smurf_score: smurf.score,
       smurf_flags: smurf.flags,
       suspicious_score: suspicious.score,
       suspicious_flags: suspicious.flags,
-      loaded: true,
+      loaded: processed.length > 0,
       cached: false,
     };
 
@@ -252,8 +322,11 @@ export async function enrichLivePlayers(
     if (i > 0) await sleep(delay);
     const player = players[i];
     const enrich = await enrichOnePlayer(player, nameMap);
+    const rankTier = Math.max(player.rank_tier, enrich.rank_tier || 0);
     result.push({
       ...player,
+      rank_tier: rankTier,
+      rank_name: getRankName(rankTier),
       name: enrich.name,
       enrich,
     });

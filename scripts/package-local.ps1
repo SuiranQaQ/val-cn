@@ -46,9 +46,19 @@ function Ensure-PortableNode {
   return $NodeExe
 }
 
-Write-Host "==> Build Next.js standalone..." -ForegroundColor Cyan
-npm run build
-if ($LASTEXITCODE -ne 0) { throw "build failed" }
+Write-Host "==> Build Next.js standalone (client mode)..." -ForegroundColor Cyan
+$env:NEXT_PUBLIC_APP_MODE = "client"
+$env:NEXT_PUBLIC_ELECTRON_SHELL = "1"
+$env:NEXT_PUBLIC_SITE_URL = "https://valcn.suiran.xyz"
+$PrevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+npm.cmd run build
+$buildCode = $LASTEXITCODE
+$ErrorActionPreference = $PrevEap
+Remove-Item Env:NEXT_PUBLIC_APP_MODE -ErrorAction SilentlyContinue
+Remove-Item Env:NEXT_PUBLIC_ELECTRON_SHELL -ErrorAction SilentlyContinue
+Remove-Item Env:NEXT_PUBLIC_SITE_URL -ErrorAction SilentlyContinue
+if ($buildCode -ne 0) { throw "build failed" }
 
 $OutDir = Join-Path $Root "release\VAL-CN"
 if (Test-Path $OutDir) {
@@ -68,24 +78,61 @@ if (-not (Test-Path $Standalone)) { throw "missing .next/standalone" }
 Write-Host "==> Copy app files..." -ForegroundColor Cyan
 Copy-Item -Path (Join-Path $Standalone "*") -Destination $OutDir -Recurse -Force
 Copy-Item -Path (Join-Path $Root ".next\static") -Destination (Join-Path $OutDir ".next\static") -Recurse -Force
+
+Write-Host "==> Prune dev artifacts from package..." -ForegroundColor Cyan
+@(
+  "src", "docs", "release", "scripts", "AGENTS.md", "CLAUDE.md",
+  "eslint.config.mjs", "next.config.ts", "postcss.config.mjs",
+  "ecosystem.config.cjs", "README.md", "session.example.json",
+  "package-lock.json", "start-debug.bat", "start.bat", "companion"
+) | ForEach-Object {
+  $p = Join-Path $OutDir $_
+  if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
+}
 if (Test-Path (Join-Path $Root "public")) {
   Copy-Item -Path (Join-Path $Root "public") -Destination (Join-Path $OutDir "public") -Recurse -Force
+  Remove-Item (Join-Path $OutDir "public\downloads") -Recurse -Force -ErrorAction SilentlyContinue
+  $ClientVideo = Join-Path $OutDir "public\videos\home-bg.mp4"
+  if (Test-Path $ClientVideo) {
+    Remove-Item $ClientVideo -Force
+    Write-Host "    (skipped website background video in client package)" -ForegroundColor DarkGray
+  }
 }
 
 $RuntimeDir = Join-Path $OutDir "runtime"
 Ensure-PortableNode -RuntimeDir $RuntimeDir | Out-Null
 
+function Read-EnvValue {
+  param([string]$FilePath, [string]$Key)
+  if (-not (Test-Path $FilePath)) { return "" }
+  foreach ($line in Get-Content $FilePath -Encoding UTF8) {
+    $t = $line.Trim()
+    if (-not $t -or $t.StartsWith("#")) { continue }
+    if ($t -match "^$([regex]::Escape($Key))=(.*)$") {
+      return $Matches[1].Trim().Trim('"').Trim("'")
+    }
+  }
+  return ""
+}
+
 $EnvPath = Join-Path $OutDir ".env.local"
-if (Test-Path (Join-Path $Root ".env.local")) {
-  Copy-Item (Join-Path $Root ".env.local") $EnvPath
-} else {
-  @"
+$ContribSecret = Read-EnvValue -FilePath (Join-Path $Root ".env.local") -Key "SESSION_POOL_CONTRIBUTE_SECRET"
+if (-not $ContribSecret) {
+  $ContribSecret = Read-EnvValue -FilePath (Join-Path $Root ".env.website.example") -Key "SESSION_POOL_CONTRIBUTE_SECRET"
+}
+$ClientEnv = @"
 RIOT_PD_BASE=https://alpha1-pd-redge.val.qq.com
 RIOT_SHARED_BASE=https://alpha1-shared-redge.val.qq.com
 VALCN_FALLBACK=true
+NEXT_PUBLIC_APP_MODE=client
+NEXT_PUBLIC_SITE_URL=https://valcn.suiran.xyz
 PORT=3000
-"@ | Set-Content -Path $EnvPath -Encoding UTF8
+HOSTNAME=127.0.0.1
+"@
+if ($ContribSecret) {
+  $ClientEnv += "`nSESSION_POOL_CONTRIBUTE_SECRET=$ContribSecret"
 }
+Set-Content -Path $EnvPath -Value $ClientEnv.TrimEnd() -Encoding UTF8
 
 $UsageText = Get-Content (Join-Path $Root "scripts\usage-zh.txt") -Raw -Encoding UTF8
 # ASCII filename + GBK content: avoids zip/filename mojibake on Chinese Windows
@@ -192,6 +239,61 @@ pause
 
 Copy-Item (Join-Path $Root "scripts\check-session.mjs") (Join-Path $OutDir "check-session.mjs") -Force
 
+Write-Host "==> Bundle Companion..." -ForegroundColor Cyan
+$CompanionOut = Join-Path $OutDir "companion"
+Copy-Item -Path (Join-Path $Root "companion") -Destination $CompanionOut -Recurse -Force
+Remove-Item (Join-Path $CompanionOut "node_modules") -Recurse -Force -ErrorAction SilentlyContinue
+Push-Location $CompanionOut
+$PrevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& npm.cmd install --omit=dev 2>&1 | Out-Null
+$npmCode = $LASTEXITCODE
+$ErrorActionPreference = $PrevEap
+Pop-Location
+if ($npmCode -ne 0) { throw "companion npm install failed" }
+
+$StartCompanionBat = @'
+@echo off
+chcp 936 >nul
+cd /d "%~dp0companion"
+echo VAL-CN Companion - 捕获 JWT 写入 session.json
+echo 请先确保已运行 install-companion-ca.bat（首次）
+echo.
+"%~dp0runtime\node.exe" index.mjs --set-proxy
+pause
+'@
+
+$InstallCompanionCaBat = @'
+@echo off
+chcp 936 >nul
+cd /d "%~dp0companion\scripts"
+call install-ca.cmd
+pause
+'@
+
+$CompanionVbs = @'
+' VAL CN Companion - MITM proxy (minimized console)
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set sh = CreateObject("WScript.Shell")
+dir = fso.GetParentFolderName(WScript.ScriptFullName)
+node = dir & "\runtime\node.exe"
+companion = dir & "\companion\index.mjs"
+If Not fso.FileExists(node) Then
+  MsgBox "Missing runtime\node.exe", vbCritical, "VAL CN Companion"
+  WScript.Quit 1
+End If
+If Not fso.FileExists(companion) Then
+  MsgBox "Missing companion\index.mjs", vbCritical, "VAL CN Companion"
+  WScript.Quit 1
+End If
+sh.CurrentDirectory = dir & "\companion"
+sh.Run """" & node & """ """ & companion & """ --set-proxy", 1, False
+'@
+
+Write-GbkFile -Path (Join-Path $OutDir "start-companion.bat") -Content $StartCompanionBat
+Write-GbkFile -Path (Join-Path $OutDir "install-companion-ca.bat") -Content $InstallCompanionCaBat
+Write-AsciiFile -Path (Join-Path $OutDir "VAL-CN-companion.vbs") -Content $CompanionVbs
+
 Write-AsciiFile -Path (Join-Path $OutDir "VAL-CN.vbs") -Content $MainVbs
 Write-AsciiFile -Path (Join-Path $OutDir "VAL-CN-live.vbs") -Content $LiveVbs
 Write-GbkFile -Path (Join-Path $OutDir "stop.bat") -Content $StopBat
@@ -211,6 +313,13 @@ Write-Host "==> Create zip..." -ForegroundColor Cyan
 $ZipPath = Join-Path $Root "release\VAL-CN-portable.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path $OutDir -DestinationPath $ZipPath -Force
+
+$DownloadDir = Join-Path $Root "public\downloads"
+New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
+$DownloadZip = Join-Path $DownloadDir "VAL-CN-portable.zip"
+Copy-Item $ZipPath $DownloadZip -Force
+$ZipMb = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
+Write-Host "    Website download: public/downloads/VAL-CN-portable.zip ($ZipMb MB)" -ForegroundColor DarkGray
 
 Write-Host ""
 Write-Host "Done: $OutDir" -ForegroundColor Green

@@ -12,14 +12,16 @@ export async function GET() {
       ok: false,
       source,
       message:
-        "无法获取 Riot 会话。可启动瓦罗兰特客户端，或在 .env.local 填写 Token。",
+        "无法获取 Riot 会话。请保持 VALCN_FALLBACK 开启，或配置伴生 session 文件。",
     });
   }
 
   const sourceLabel: Record<string, string> = {
-    env: "环境变量（自己的 Token）",
-    lockfile: "本机客户端 lockfile",
-    fallback: "公开后备会话（RIOT_SESSION_URL）",
+    env: "环境变量",
+    file: "Companion 本机会话",
+    pool: "官网公用池",
+    lockfile: "本机 lockfile",
+    fallback: "公开后备 Token 池",
   };
 
   return NextResponse.json({

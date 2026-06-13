@@ -1,0 +1,14 @@
+{
+  "name": "val-cn-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "国服 ACLOS 伴生代理：截获 JWT 写入 session.json，供 VAL-CN 读取",
+  "scripts": {
+    "start": "node index.mjs",
+    "install-ca": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-ca.ps1"
+  },
+  "dependencies": {
+    "http-mitm-proxy": "^1.1.0"
+  }
+}
